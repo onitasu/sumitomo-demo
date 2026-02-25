@@ -58,4 +58,10 @@ def search_chunks(
     }
 
     # chunk_indexから該当するチャンクを順番通りに返す（IDはこちらが持つ）
-    return [c for c in chunk_index if c.chunk_id in relevant_ids]
+    matched = [c for c in chunk_index if c.chunk_id in relevant_ids]
+
+    # LLMが全件noneと判定した場合は先頭5チャンクをフォールバックとして返す
+    if not matched:
+        return chunk_index[:5]
+
+    return matched

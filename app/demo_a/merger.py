@@ -50,9 +50,16 @@ def build_extraction_context(
             page_ranges.append((chunk.page_start, chunk.page_end))
             total_pages += pages
 
-    # チャンクが0件 or 全件がmax_pagesを超えた場合は全文PDFにフォールバック
+    # チャンクが0件 or 全件がmax_pagesを超えた場合は先頭max_pagesページにフォールバック
     if not page_ranges:
-        return pdf_path.read_bytes()
+        doc = pymupdf.open(pdf_path)
+        total = len(doc)
+        out_doc = pymupdf.open()
+        out_doc.insert_pdf(doc, from_page=0, to_page=min(max_pages, total) - 1)
+        pdf_bytes = out_doc.tobytes()
+        out_doc.close()
+        doc.close()
+        return pdf_bytes
 
     # マージ・重複排除
     merged = _merge_page_ranges(page_ranges)
