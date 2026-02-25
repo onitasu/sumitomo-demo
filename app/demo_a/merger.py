@@ -1,10 +1,10 @@
-"""Step 7: コンテキスト統合（検索結果→PDFページ切出し）"""
+"""Step 7: コンテキスト統合（関連チャンク→PDFページ切出し）"""
 
 from pathlib import Path
 
 import pymupdf
 
-from app.demo_a.schemas import SearchResults, SemanticChunk
+from app.demo_a.schemas import SemanticChunk
 
 
 def _merge_page_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -24,72 +24,38 @@ def _merge_page_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
     return merged
 
 
-def _collect_page_ranges(
-    search_results: SearchResults,
-    chunk_index: list[SemanticChunk],
-) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
-    """検索結果からhigh/mediumのページ範囲を収集する。"""
-    chunk_map = {c.chunk_id: c for c in chunk_index}
-
-    high_ids: set[str] = set()
-    medium_ids: set[str] = set()
-
-    for group_result in search_results.results:
-        for match in group_result.matched_chunks:
-            if match.relevance == "high":
-                high_ids.add(match.chunk_id)
-            else:
-                medium_ids.add(match.chunk_id)
-
-    high_ranges = [(chunk_map[cid].page_start, chunk_map[cid].page_end) for cid in high_ids if cid in chunk_map]
-    medium_ranges = [
-        (chunk_map[cid].page_start, chunk_map[cid].page_end) for cid in medium_ids - high_ids if cid in chunk_map
-    ]
-
-    return high_ranges, medium_ranges
-
-
 def build_extraction_context(
-    search_results: SearchResults,
-    chunk_index: list[SemanticChunk],
+    relevant_chunks: list[SemanticChunk],
     pdf_path: Path,
     max_pages: int = 100,
 ) -> bytes:
-    """検索結果からPDFのページを統合して抽出用コンテキストを構築。
+    """関連チャンクからPDFのページを統合して抽出用コンテキストを構築。
+
+    searcher.pyがIDではなくSemanticChunkを返すため、chunk_mapルックアップは不要。
 
     Args:
-        search_results: チャンク検索結果
-        chunk_index: セマンティックチャンクインデックス
+        relevant_chunks: high/mediumと評価されたSemanticChunkのリスト
         pdf_path: 元PDFファイルパス
         max_pages: 最大ページ数
 
     Returns:
-        統合されたPDFのバイト列
+        統合されたPDFのバイト列（チャンクが0件の場合は全文PDFを返す）
     """
-    high_ranges, medium_ranges = _collect_page_ranges(search_results, chunk_index)
-
-    # highを優先して追加、余裕があればmediumも
+    # ページ範囲を収集（max_pages以内に収める）
     page_ranges: list[tuple[int, int]] = []
     total_pages = 0
-
-    for start, end in sorted(high_ranges):
-        pages = end - start + 1
+    for chunk in relevant_chunks:
+        pages = chunk.page_end - chunk.page_start + 1
         if total_pages + pages <= max_pages:
-            page_ranges.append((start, end))
+            page_ranges.append((chunk.page_start, chunk.page_end))
             total_pages += pages
 
-    for start, end in sorted(medium_ranges):
-        pages = end - start + 1
-        if total_pages + pages <= max_pages:
-            page_ranges.append((start, end))
-            total_pages += pages
+    # チャンクが0件 or 全件がmax_pagesを超えた場合は全文PDFにフォールバック
+    if not page_ranges:
+        return pdf_path.read_bytes()
 
     # マージ・重複排除
     merged = _merge_page_ranges(page_ranges)
-
-    # ページが選択されなかった場合は全文PDFをそのまま返す
-    if not merged:
-        return pdf_path.read_bytes()
 
     # 元PDFから該当ページを切り出し
     doc = pymupdf.open(pdf_path)
@@ -97,7 +63,6 @@ def build_extraction_context(
     for start, end in merged:
         out_doc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
 
-    # 念のため0ページになっていた場合も全文にフォールバック
     if len(out_doc) == 0:
         out_doc.close()
         doc.close()

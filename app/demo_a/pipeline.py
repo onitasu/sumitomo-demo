@@ -72,7 +72,6 @@ def extract_with_schema(
         # Step 7. コンテキスト統合
         context_pdf = build_extraction_context(
             search_results,
-            chunk_index,
             pdf_path,
         )
 

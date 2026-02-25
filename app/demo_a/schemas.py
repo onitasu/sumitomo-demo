@@ -38,24 +38,19 @@ class GroupingResult(BaseModel):
     groups: list[FieldGroup]
 
 
-# --- Step 6: チャンク検索 ---
+# --- Step 6: チャンク検索（評価型） ---
+# LLMはchunk_idを「生成」せず、こちらが渡したIDに対して relevance を付けるだけ。
+# ハルシネーションによるID不一致を根本的に防ぐ設計。
 
 
-class ChunkMatch(BaseModel):
-    """チャンクとグループの照合結果。"""
+class ChunkEvaluation(BaseModel):
+    """1チャンクの関連度評価。chunk_idはこちらから渡し、LLMはrelevanceだけ返す。"""
 
     chunk_id: str
-    relevance: str  # "high" / "medium"
+    relevance: str  # "high" / "medium" / "none"
 
 
-class GroupSearchResult(BaseModel):
-    """1グループの検索結果。"""
+class ChunkEvaluations(BaseModel):
+    """全チャンクの関連度評価リスト。"""
 
-    group_name: str
-    matched_chunks: list[ChunkMatch]
-
-
-class SearchResults(BaseModel):
-    """全グループの検索結果。"""
-
-    results: list[GroupSearchResult]
+    evaluations: list[ChunkEvaluation]
