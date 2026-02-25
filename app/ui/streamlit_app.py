@@ -2,11 +2,15 @@
 
 import sys
 import json
+import logging
 import tempfile
 from pathlib import Path
 
 # Streamlit Cloud ではプロジェクトルートが sys.path に含まれないため明示的に追加
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+# Streamlit Cloud のログに WARNING 以上を出力する
+logging.basicConfig(level=logging.WARNING, format="%(name)s %(levelname)s: %(message)s")
 
 import streamlit as st
 

@@ -1,7 +1,11 @@
 """Step 6: チャンク検索（評価型 - LLMはrelevanceを付けるだけでIDを生成しない）"""
 
+import logging
+
 from app.demo_a.llm_client import get_client
 from app.demo_a.schemas import ChunkEvaluations, GroupingResult, SemanticChunk
+
+logger = logging.getLogger(__name__)
 
 
 def search_chunks(
@@ -52,16 +56,30 @@ def search_chunks(
         output_format=ChunkEvaluations,
     )
 
+    # デバッグ: LLMが返したevaluationsをすべてログに出す
+    logger.warning("[searcher] LLM returned %d evaluations (input: %d chunks)", len(result.evaluations), len(chunk_index))
+    for e in result.evaluations:
+        logger.warning("[searcher]   chunk_id=%r  relevance=%r", e.chunk_id, e.relevance)
+
     # LLMが返したevaluationsからhigh/mediumのchunk_idを抽出
     relevant_ids = {
         e.chunk_id for e in result.evaluations if e.relevance in ("high", "medium")
     }
+    logger.warning("[searcher] relevant_ids=%r", relevant_ids)
+
+    # chunk_indexの実際のIDと照合
+    actual_ids = {c.chunk_id for c in chunk_index}
+    missing = relevant_ids - actual_ids
+    if missing:
+        logger.warning("[searcher] LLMが存在しないIDを返した（ハルシネーション）: %r", missing)
 
     # chunk_indexから該当するチャンクを順番通りに返す（IDはこちらが持つ）
     matched = [c for c in chunk_index if c.chunk_id in relevant_ids]
+    logger.warning("[searcher] matched %d chunks", len(matched))
 
     # LLMが全件noneと判定した場合は先頭5チャンクをフォールバックとして返す
     if not matched:
+        logger.warning("[searcher] フォールバック: 先頭5チャンクを使用")
         return chunk_index[:5]
 
     return matched
