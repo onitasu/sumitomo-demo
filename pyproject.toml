@@ -1,0 +1,47 @@
+[project]
+name = "sumitomo-poc"
+version = "0.1.0"
+description = "住友商事 エネルギー鋼管SBU向け 検証用AIエージェント PoCデモアプリ"
+requires-python = ">=3.11"
+dependencies = [
+    # LLM
+    "anthropic>=0.83.0",
+
+    # UI
+    "streamlit>=1.40.0",
+
+    # ドキュメント処理
+    "pymupdf>=1.25.0",
+    "msoffcrypto-tool>=5.4.0",
+
+    # スキーマ・バリデーション
+    "pydantic>=2.10.0",
+
+    # ユーティリティ
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.0",
+    "pytest>=8.3.0",
+    "pytest-timeout>=2.3.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 300

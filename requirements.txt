@@ -1,0 +1,6 @@
+anthropic>=0.83.0
+streamlit>=1.40.0
+pymupdf>=1.25.0
+msoffcrypto-tool>=5.4.0
+pydantic>=2.10.0
+python-dotenv>=1.0.0

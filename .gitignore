@@ -1,0 +1,26 @@
+# ランタイムデータ（アプリ実行時に配置）
+data/
+output/
+logs/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+
+# ruff
+.ruff_cache/
+
+# pytest
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Office一時ファイル
+~$*
