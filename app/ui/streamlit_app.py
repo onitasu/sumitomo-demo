@@ -1,8 +1,12 @@
 """デモA: 汎用文書構造化エンジン — Streamlit UI"""
 
+import sys
 import json
 import tempfile
 from pathlib import Path
+
+# Streamlit Cloud ではプロジェクトルートが sys.path に含まれないため明示的に追加
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import streamlit as st
 
