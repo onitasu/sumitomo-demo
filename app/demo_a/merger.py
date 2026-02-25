@@ -87,11 +87,22 @@ def build_extraction_context(
     # マージ・重複排除
     merged = _merge_page_ranges(page_ranges)
 
+    # ページが選択されなかった場合は全文PDFをそのまま返す
+    if not merged:
+        return pdf_path.read_bytes()
+
     # 元PDFから該当ページを切り出し
     doc = pymupdf.open(pdf_path)
     out_doc = pymupdf.open()
     for start, end in merged:
         out_doc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
+
+    # 念のため0ページになっていた場合も全文にフォールバック
+    if len(out_doc) == 0:
+        out_doc.close()
+        doc.close()
+        return pdf_path.read_bytes()
+
     pdf_bytes = out_doc.tobytes()
     out_doc.close()
     doc.close()
