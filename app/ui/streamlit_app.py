@@ -31,6 +31,12 @@ PRESET_DOCUMENTS = {
     "Exhibit D - Chrome (Excel)": (
         RESOURCES_BASE / "受注前" / "テンダー書類" / "Chrome" / "Att 1-Exhibit D - OCTG Cr.xlsx"
     ),
+    "Base Contract (PDF, 230p)": (
+        RESOURCES_BASE / "受注後" / "Input from customer & mill" / "PO" / "Base Contract_00008772-CTR109083 TEPRH AGUP Ph2 OCTG CRA CONTRACT Signed.pdf"
+    ),
+    "CallOff PO (PDF)": (
+        RESOURCES_BASE / "受注後" / "Input from customer & mill" / "PO" / "CallOff 4300062653 - AGUP P2 - Sumitomo (FINAL).pdf"
+    ),
 }
 
 # --- ページ設定 ---

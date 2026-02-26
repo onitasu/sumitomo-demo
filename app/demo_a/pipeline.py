@@ -1,6 +1,13 @@
 """デモA パイプライン統合（フェーズ1 + フェーズ2）"""
 
+import json
+import logging
+from datetime import datetime
 from pathlib import Path
+
+import pymupdf
+
+logger = logging.getLogger(__name__)
 
 from app.demo_a.chunker import build_document_index
 from app.demo_a.extractor import extract_structured_data, postprocess_result
@@ -10,6 +17,18 @@ from app.demo_a.schema_builder import build_extraction_schema
 from app.demo_a.schemas import SemanticChunk
 from app.demo_a.searcher import search_chunks
 from app.demo_a.splitter import load_and_split
+
+LOGS_DIR = Path(__file__).parent.parent.parent / "logs"
+
+
+def _save_json_log(name: str, data: dict | list) -> Path:
+    """中間結果をJSONファイルとしてlogs/に保存する。"""
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = LOGS_DIR / f"{ts}_{name}.json"
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2, default=str))
+    logger.info("ログ保存: %s", path)
+    return path
 
 
 def build_index(
@@ -29,6 +48,27 @@ def build_index(
     chunk_index = None
     if len(batches) > 1:
         chunk_index = build_document_index(batches)
+
+        # チャンクインデックスをJSON出力
+        _save_json_log(
+            "chunk_index",
+            {
+                "source_pdf": str(pdf_path),
+                "total_batches": len(batches),
+                "batches": [
+                    {
+                        "id": b["id"],
+                        "label": b["label"],
+                        "page_start": b["page_start"],
+                        "page_end": b["page_end"],
+                        "page_count": b["page_count"],
+                    }
+                    for b in batches
+                ],
+                "total_chunks": len(chunk_index),
+                "chunks": [c.model_dump() for c in chunk_index],
+            },
+        )
 
     return pdf_path, batches, chunk_index
 
@@ -66,13 +106,56 @@ def extract_with_schema(
         # Step 5. フィールドグルーピング + クエリ生成
         field_groups = group_fields(field_definitions)
 
+        # グルーピング結果をJSON出力
+        _save_json_log(
+            "field_groups",
+            {
+                "field_definitions": field_definitions,
+                "groups": [g.model_dump() for g in field_groups.groups],
+            },
+        )
+
         # Step 6. チャンク検索
         search_results = search_chunks(chunk_index, field_groups)
+
+        # 検索結果をJSON出力
+        _save_json_log(
+            "search_results",
+            {
+                "total_chunks": len(chunk_index),
+                "matched_chunks": len(search_results),
+                "matched": [c.model_dump() for c in search_results],
+            },
+        )
 
         # Step 7. コンテキスト統合
         context_pdf = build_extraction_context(
             search_results,
             pdf_path,
+        )
+
+        # コンテキストPDFのページ数を確認してログ出力
+        ctx_doc = pymupdf.open(stream=context_pdf, filetype="pdf")
+        ctx_pages = len(ctx_doc)
+        ctx_doc.close()
+
+        _save_json_log(
+            "extraction_context",
+            {
+                "source_pdf": str(pdf_path),
+                "context_pdf_bytes": len(context_pdf),
+                "context_pdf_pages": ctx_pages,
+                "source_chunks": [
+                    {
+                        "chunk_id": c.chunk_id,
+                        "page_start": c.page_start,
+                        "page_end": c.page_end,
+                        "query": c.query,
+                        "description": c.description,
+                    }
+                    for c in search_results
+                ],
+            },
         )
 
         # Step 8. 構造化抽出
@@ -83,4 +166,9 @@ def extract_with_schema(
         )
 
     # Step 9. 後処理
-    return postprocess_result(extracted, field_definitions)
+    results = postprocess_result(extracted, field_definitions)
+
+    # 最終結果をJSON出力
+    _save_json_log("extraction_result", results)
+
+    return results
