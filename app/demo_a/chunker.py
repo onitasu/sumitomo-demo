@@ -1,6 +1,7 @@
 """Step 3: セマンティックチャンク生成（LLM使用・並列処理）"""
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pymupdf
@@ -10,6 +11,8 @@ from app.demo_a.llm_client import get_client
 from app.demo_a.schemas import BatchChunkResult, SemanticChunk
 
 logger = logging.getLogger(__name__)
+
+MAX_PDF_RETRIES = 3
 
 
 def build_semantic_chunks(
@@ -54,6 +57,34 @@ def build_semantic_chunks(
         messages=messages,
         output_format=BatchChunkResult,
     )
+
+
+def _build_with_retry(batch: dict, batch_index: int) -> BatchChunkResult:
+    """リトライ付きでbuild_semantic_chunksを呼び出す。
+
+    Claude APIの一時的なPDF処理エラーに対応するため、
+    MAX_PDF_RETRIES回までリトライする。
+    """
+    for attempt in range(MAX_PDF_RETRIES):
+        try:
+            return build_semantic_chunks(batch, batch_index)
+        except BadRequestError as e:
+            if "Could not process PDF" not in str(e) or attempt == MAX_PDF_RETRIES - 1:
+                raise
+            wait = 2 ** attempt
+            logger.warning(
+                "バッチ %d (p.%d-%d) のPDF処理に失敗（試行 %d/%d）。%d秒後にリトライ: %s",
+                batch_index,
+                batch["page_start"],
+                batch["page_end"],
+                attempt + 1,
+                MAX_PDF_RETRIES,
+                wait,
+                e,
+            )
+            time.sleep(wait)
+    # unreachable, but for type checker
+    raise RuntimeError("unreachable")
 
 
 def _text_fallback_chunks(
@@ -167,7 +198,7 @@ def build_document_index(
     all_batch_chunks: list[list[SemanticChunk] | None] = [None] * len(batches)
 
     with ThreadPoolExecutor(max_workers=4) as executor:
-        future_to_idx = {executor.submit(build_semantic_chunks, batch, i): i for i, batch in enumerate(batches)}
+        future_to_idx = {executor.submit(_build_with_retry, batch, i): i for i, batch in enumerate(batches)}
         for future in as_completed(future_to_idx):
             idx = future_to_idx[future]
             batch = batches[idx]
@@ -177,10 +208,11 @@ def build_document_index(
             except BadRequestError as e:
                 if "Could not process PDF" in str(e):
                     logger.warning(
-                        "バッチ %d (p.%d-%d) のPDF処理に失敗。テキスト抽出にフォールバック: %s",
+                        "バッチ %d (p.%d-%d) のPDF処理に%d回リトライ後も失敗。テキスト抽出にフォールバック: %s",
                         idx,
                         batch["page_start"],
                         batch["page_end"],
+                        MAX_PDF_RETRIES,
                         e,
                     )
                     all_batch_chunks[idx] = _text_fallback_chunks(

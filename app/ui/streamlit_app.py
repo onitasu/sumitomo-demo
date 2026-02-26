@@ -1,16 +1,10 @@
 """デモA: 汎用文書構造化エンジン — Streamlit UI"""
 
-import sys
 import json
 import logging
 import tempfile
+import traceback
 from pathlib import Path
-
-# Streamlit Cloud ではプロジェクトルートが sys.path に含まれないため明示的に追加
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-# Streamlit Cloud のログに WARNING 以上を出力する
-logging.basicConfig(level=logging.WARNING, format="%(name)s %(levelname)s: %(message)s")
 
 import streamlit as st
 
@@ -39,6 +33,26 @@ PRESET_DOCUMENTS = {
     ),
 }
 
+# --- ロギング設定 ---
+# StreamlitのUIにログを表示するためのハンドラ
+class StreamlitLogHandler(logging.Handler):
+    """ログをst.session_stateに蓄積するハンドラ。"""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if "log_messages" not in st.session_state:
+            st.session_state.log_messages = []
+        msg = self.format(record)
+        st.session_state.log_messages.append(msg)
+
+
+# app配下のロガーにハンドラを設定
+_log_handler = StreamlitLogHandler()
+_log_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S"))
+_app_logger = logging.getLogger("app")
+_app_logger.setLevel(logging.DEBUG)
+if not any(isinstance(h, StreamlitLogHandler) for h in _app_logger.handlers):
+    _app_logger.addHandler(_log_handler)
+
 # --- ページ設定 ---
 st.set_page_config(page_title="デモA: 汎用文書構造化エンジン", page_icon="📄", layout="wide")
 st.title("基盤① 文書処理・構造化生成 デモ")
@@ -51,6 +65,7 @@ for key, default in {
     "current_schema_key": None,  # スキーマ識別キー
     "uploaded_temp_path": None,  # アップロードファイルの一時保存パス
     "uploaded_file_id": None,  # アップロードファイルの識別キー（temp再作成判定用）
+    "log_messages": [],  # 実行ログ
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -155,6 +170,16 @@ with st.sidebar:
                 st.metric("チャンク数", len(chunk_index))
             st.caption("処理方式: セマンティックチャンク")
 
+    # 実行ログ（サイドバー下部に常時表示）
+    if st.session_state.log_messages:
+        st.divider()
+        st.header("📝 実行ログ")
+        log_text = "\n".join(st.session_state.log_messages)
+        st.code(log_text, language="text")
+        if st.button("ログをクリア", use_container_width=True):
+            st.session_state.log_messages = []
+            st.rerun()
+
 
 # ===== メインエリア =====
 
@@ -170,6 +195,8 @@ if selected_file_path and field_definitions:
                 pdf_result = ensure_pdf(selected_file_path, output_dir=Path("output/converted"))
             except Exception as e:
                 st.error(f"ファイル変換エラー: {e}")
+                with st.expander("トレースバック（詳細）", expanded=True):
+                    st.code(traceback.format_exc(), language="python")
                 st.stop()
 
             if isinstance(pdf_result, TextContent):
@@ -186,6 +213,8 @@ if selected_file_path and field_definitions:
                 pdf_path, batches, chunk_index = build_index(pdf_result)
             except Exception as e:
                 st.error(f"インデックス構築エラー: {e}")
+                with st.expander("トレースバック（詳細）", expanded=True):
+                    st.code(traceback.format_exc(), language="python")
                 st.stop()
 
             if len(batches) == 1:
@@ -209,6 +238,8 @@ if selected_file_path and field_definitions:
 
     if run_extraction:
         pdf_path, batches, chunk_index = st.session_state.index_cache
+        # ログをクリア
+        st.session_state.log_messages = []
 
         with st.status("抽出中...", expanded=True) as status:
             if chunk_index:
@@ -216,11 +247,33 @@ if selected_file_path and field_definitions:
                 st.write("Step 6: チャンク検索")
                 st.write("Step 7: コンテキスト統合")
             st.write("Step 8: 構造化抽出（Sonnet 4.6）")
+            st.write(f"  フィールド数: {len(field_definitions)}")
+            st.write(f"  フィールド: {', '.join(f['name'] for f in field_definitions)}")
 
             try:
                 results = extract_with_schema(pdf_path, batches, chunk_index, field_definitions)
             except Exception as e:
+                status.update(label="抽出失敗", state="error", expanded=True)
                 st.error(f"抽出エラー: {e}")
+
+                # トレースバック表示
+                tb = traceback.format_exc()
+                with st.expander("トレースバック（詳細）", expanded=True):
+                    st.code(tb, language="python")
+
+                # スキーマ情報表示
+                from app.demo_a.schema_builder import build_extraction_schema
+
+                try:
+                    debug_model = build_extraction_schema(field_definitions)
+                    schema_json = debug_model.model_json_schema()
+                    with st.expander("送信スキーマ（JSON Schema）", expanded=True):
+                        st.json(schema_json)
+                except Exception:
+                    pass
+
+                st.info("詳細ログはサイドバーの「実行ログ」を確認してください。")
+
                 st.stop()
 
             st.session_state.extraction_results = results
